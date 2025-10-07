@@ -11,6 +11,8 @@ on:
 jobs:
   build:
     strategy:
+      # 关键：防止一个失败导致其他任务被取消
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -21,36 +23,41 @@ jobs:
             platform: windows-amd64
           - os: macos-latest
             platform: darwin-amd64
-            
+
     runs-on: ${{ matrix.os }}
-    
+    timeout-minutes: 30
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         submodules: recursive
-        
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
+        # 修改：如果前端代码在子目录，指定缓存路径
         cache: 'yarn'
-        
+        cache-dependency-path: '**/yarn.lock'
+
     - name: Setup Go
       uses: actions/setup-go@v4
       with:
         go-version: '1.23'
         cache: true
-        
-    - name: Install dependencies
+
+    - name: Install Yarn dependencies
+      # 修改：在前端目录安装依赖
       run: |
-        npm install -g yarn
-        
+        cd assets  # 根据你的实际前端目录调整
+        yarn install --frozen-lockfile
+
     - name: Build frontend
       run: |
         chmod +x ./.build/build-assets.sh
         ./.build/build-assets.sh
-        
+
     - name: Build Cloudreve
       run: |
         export COMMIT_SHA=$(git rev-parse --short HEAD)
@@ -81,7 +88,7 @@ jobs:
         
         go build -a -o $OUTPUT_NAME \
           -ldflags "-s -w -X 'github.com/cloudreve/Cloudreve/v4/application/constants.BackendVersion=$VERSION' -X 'github.com/cloudreve/Cloudreve/v4/application/constants.LastCommit=$COMMIT_SHA'"
-        
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
