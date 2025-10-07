@@ -1,0 +1,90 @@
+name: Build Cloudreve Multi-Platform
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-amd64
+          - os: ubuntu-latest
+            platform: linux-arm64
+          - os: windows-latest
+            platform: windows-amd64
+          - os: macos-latest
+            platform: darwin-amd64
+            
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'yarn'
+        
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+        cache: true
+        
+    - name: Install dependencies
+      run: |
+        npm install -g yarn
+        
+    - name: Build frontend
+      run: |
+        chmod +x ./.build/build-assets.sh
+        ./.build/build-assets.sh
+        
+    - name: Build Cloudreve
+      run: |
+        export COMMIT_SHA=$(git rev-parse --short HEAD)
+        export VERSION=$(git describe --tags || echo "dev")
+        
+        # 设置输出文件名
+        if [ "${{ matrix.platform }}" = "windows-amd64" ]; then
+          OUTPUT_NAME="cloudreve.exe"
+        else
+          OUTPUT_NAME="cloudreve"
+        fi
+        
+        # 设置 GOOS 和 GOARCH
+        case "${{ matrix.platform }}" in
+          "linux-amd64")
+            export GOOS=linux GOARCH=amd64
+            ;;
+          "linux-arm64")
+            export GOOS=linux GOARCH=arm64
+            ;;
+          "windows-amd64")
+            export GOOS=windows GOARCH=amd64
+            ;;
+          "darwin-amd64")
+            export GOOS=darwin GOARCH=amd64
+            ;;
+        esac
+        
+        go build -a -o $OUTPUT_NAME \
+          -ldflags "-s -w -X 'github.com/cloudreve/Cloudreve/v4/application/constants.BackendVersion=$VERSION' -X 'github.com/cloudreve/Cloudreve/v4/application/constants.LastCommit=$COMMIT_SHA'"
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: cloudreve-${{ matrix.platform }}
+        path: ${{ matrix.platform == 'windows-amd64' && 'cloudreve.exe' || 'cloudreve' }}
+        retention-days: 30
